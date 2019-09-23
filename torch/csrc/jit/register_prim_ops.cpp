@@ -1419,7 +1419,37 @@ RegisterOperators logging_operators(
 
 #define DEFINE_BINARY_OP(aten_op, op)             \
   DEFINE_GENERIC_OP(aten_op, op, op, int, float), \
-      DEFINE_INT_FLOAT_OP(aten_op, op, float)
+  DEFINE_INT_FLOAT_OP(aten_op, op, float), \
+  Operator( \
+    #aten_op "(Scalar a, Scalar b) -> Scalar", \
+    [](Stack& stack) { \
+      IValue x, y; \
+      pop(stack, x, y); \
+      if (x.isDouble()) { \
+        if (y.isDouble()) { \
+          double a = x.toDouble(); \
+          double b = y.toDouble(); \
+          push(stack, op); \
+        } else { \
+          double a = x.toDouble(); \
+          int64_t b = y.toInt(); \
+          push(stack, op); \
+        } \
+      } else { \
+        if (y.isDouble()) { \
+          int64_t a = x.toInt(); \
+          double b = y.toDouble(); \
+          push(stack, op); \
+        } else { \
+          int64_t a = x.toInt(); \
+          int64_t b = y.toInt(); \
+          push(stack, op); \
+        } \
+      } \
+      return 0; \
+    }, \
+    aliasAnalysisFromSchema() \
+  )
 
 #define DEFINE_BINARY_FLOAT_OP(aten_op, op)         \
   DEFINE_GENERIC_OP(aten_op, op, op, float, float), \
@@ -1453,8 +1483,23 @@ RegisterOperators logging_operators(
 
 #define DEFINE_UNARY_OP(aten_op, op, int_result, float_result) \
   DEFINE_UNARY_INT_OP(aten_op, op, int_result),                \
-      DEFINE_UNARY_FLOAT_OP(aten_op, op, float_result)
-
+  DEFINE_UNARY_FLOAT_OP(aten_op, op, float_result),            \
+  Operator( \
+  #aten_op "(Scalar a) -> Scalar", \
+  [](Stack& stack) { \
+    IValue x; \
+    pop(stack, x); \
+    if (x.isDouble()) { \
+      double a = x.toDouble(); \
+      push(stack, static_cast<float_result>(op)); \
+    } else { \
+      int64_t a = x.toInt(); \
+      push(stack, static_cast<int_result>(op)); \
+    } \
+    return 0; \
+  }, \
+  aliasAnalysisFromSchema() \
+)
 #define DEFINE_BOOL_OP(aten_op, op)        \
   Operator(                                \
       #aten_op "(bool a, bool b) -> bool", \
@@ -2469,6 +2514,15 @@ RegisterOperators reg2({
     // NOTE: this must be after the other list specializations so that operator
     // resolution doesn't pick this up first
     CREATE_MUTABLE_LIST_OPS("t", IValue),
+
+    // TODO: remove once tests that rely on
+    // https://github.com/pytorch/pytorch/issues/24856
+    // behavior have been fixed
+    Operator(
+      "aten::append(str[](a!) self, str? el) -> str[](a!)",
+      listAppend<std::string>,
+      aliasAnalysisFromSchema()),
+
 #undef CREATE_IMMUTABLE_LIST_OPS
 #undef CREATE_MUTABLE_LIST_OPS
 
